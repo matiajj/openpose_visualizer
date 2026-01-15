@@ -2,7 +2,7 @@ const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
 const CONF_THRESH = 0.1;
 const START_FRAME = 0;
-const END_FRAME = 216;
+const END_FRAME = 171;
 const BONES = [
   [1,0],
   [1,2],[2,3],[3,4],
@@ -55,7 +55,7 @@ dynamicThicknessCheckbox.addEventListener("change", (e) => {
 
 let frames = [];
 let frameIndex = 0;
-let folder = 'video2';
+let folder = 'Plotting';
 
 function frameName(i) {
   return `${folder}.json/${folder}_${String(i).padStart(12, "0")}_keypoints.json`;

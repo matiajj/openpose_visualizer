@@ -17,6 +17,7 @@ let fps = 30;
 let showJoints = true;
 let lineColor = "#ffffff";
 let dynamicThickness = false;
+let started = false;
 
 // Setup controls
 const lineThicknessSlider = document.getElementById("lineThickness");
@@ -26,6 +27,10 @@ const fpsValue = document.getElementById("fpsValue");
 const showJointsCheckbox = document.getElementById("showJoints");
 const lineColorPicker = document.getElementById("lineColor");
 const dynamicThicknessCheckbox = document.getElementById("dynamicThickness");
+
+const jsonFilesInput = document.getElementById("jsonFiles");
+const loadJsonBtn = document.getElementById("loadJsonBtn");
+const statusEl = document.getElementById("status");
 
 lineThicknessSlider.addEventListener("input", (e) => {
   lineThickness = parseInt(e.target.value);
@@ -53,6 +58,24 @@ dynamicThicknessCheckbox.addEventListener("change", (e) => {
   dynamicThickness = e.target.checked;
 });
 
+loadJsonBtn.addEventListener("click", async () => {
+  const files = Array.from(jsonFilesInput.files || []);
+  if (!files.length) {
+    statusEl.textContent = "No JSON files selected";
+    return;
+  }
+  statusEl.textContent = "Loading JSON files...";
+  const loaded = await loadJsonFiles(files);
+  if (loaded) {
+    statusEl.textContent = `Loaded ${frames.length} frames`;
+    startLoopIfNeeded();
+  } else {
+    statusEl.textContent = "Failed to load JSON files";
+  }
+});
+
+
+
 let frames = [];
 let frameIndex = 0;
 let folder = 'Plotting';
@@ -66,6 +89,33 @@ async function loadFrames() {
     const res = await fetch(frameName(i));
     const json = await res.json();
     frames.push(json.people[0]?.pose_keypoints_2d || null);
+  }
+}
+
+async function loadJsonFiles(fileList) {
+  try {
+    // Sort filenames so frames play in order if they are named numerically
+    fileList.sort((a,b) => a.name.localeCompare(b.name, undefined, {numeric:true}));
+    const newFrames = [];
+    for (const f of fileList) {
+      const text = await f.text();
+      const json = JSON.parse(text);
+      newFrames.push(json.people[0]?.pose_keypoints_2d || null);
+    }
+    // Replace frames
+    frames = newFrames;
+    frameIndex = 0;
+    return true;
+  } catch (e) {
+    console.error('loadJsonFiles error', e);
+    return false;
+  }
+}
+
+function startLoopIfNeeded() {
+  if (!started && frames.length > 0) {
+    started = true;
+    requestAnimationFrame(loop);
   }
 }
 
@@ -171,3 +221,4 @@ function loop(time) {
 }
 
 loadFrames().then(() => requestAnimationFrame(loop));
+// If the user loads frames later we call startLoopIfNeeded() from handlers above

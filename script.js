@@ -1,4 +1,3 @@
-
 const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
 const CONF_THRESH = 0.1;
@@ -29,6 +28,8 @@ let showJoints = true;
 let lineColor = "#ffffff";
 let dynamicThickness = false;
 let started = false;
+let headRadius = null; // Store the head radius once calculated
+let radiusCalculated = false;
 
 const lineThicknessSlider = document.getElementById("lineThickness");
 const lineThicknessValue = document.getElementById("lineThicknessValue");
@@ -84,10 +85,8 @@ loadAndExportBtn.addEventListener("click", async () => {
     statusEl.textContent = `Loaded ${frames.length} frames. Starting export...`;
     startLoopIfNeeded();
     
-    // Wait a moment for the animation to start
     await new Promise(resolve => setTimeout(resolve, 500));
     
-    // Start export automatically
     await exportVideoMP4();
   } else {
     statusEl.textContent = "Failed to load JSON files";
@@ -120,6 +119,8 @@ async function loadJsonFiles(fileList) {
     }
     frames = newFrames;
     frameIndex = 0;
+    headRadius = null; // Reset head radius for new animation
+    radiusCalculated = false; // Reset the flag too
     END_FRAME = Math.max(0, frames.length - 1);
     console.log(`Adjusted END_FRAME to ${END_FRAME}`);
     return true;
@@ -166,28 +167,48 @@ function drawPose(k) {
   const leftEarIdx = 17 * 3;
   const rightEarIdx = 18 * 3;
   
-  if (k[leftEarIdx+2] >= CONF_THRESH && k[rightEarIdx+2] >= CONF_THRESH) {
-    const centerX = (k[leftEarIdx] + k[rightEarIdx]) / 2;
-    const centerY = (k[leftEarIdx+1] + k[rightEarIdx+1]) / 2;
+  // Calculate and store head radius only when both ears are visible
+  if (!radiusCalculated && k[leftEarIdx+2] >= CONF_THRESH && k[rightEarIdx+2] >= CONF_THRESH) {
     const dx = k[rightEarIdx] - k[leftEarIdx];
     const dy = k[rightEarIdx+1] - k[leftEarIdx+1];
     const diameter = Math.sqrt(dx*dx + dy*dy);
-    const radius = diameter / 2 + currentThickness * 0.5;
+    headRadius = diameter / 2 + currentThickness * 0.5;
+    radiusCalculated = true;
+  }
+  
+  // If radius still not set after first frame, use default
+  if (!radiusCalculated && headRadius === null && frameIndex > 0) {
+    headRadius = 60 + currentThickness * 0.5; // Default radius
+    radiusCalculated = true;
+  }
+  
+  // Draw head using stored radius
+  if (headRadius !== null) {
+    const leftEarVisible = k[leftEarIdx+2] >= CONF_THRESH;
+    const rightEarVisible = k[rightEarIdx+2] >= CONF_THRESH;
     
-    ctx.beginPath();
-    ctx.arc(centerX, centerY, radius, 0, Math.PI*2);
-    ctx.fillStyle = lineColor;
-    ctx.fill();
-  } else if (k[neckIdx+2] >= CONF_THRESH) {
-    const earIdx = k[leftEarIdx+2] >= CONF_THRESH ? leftEarIdx : rightEarIdx;
-    if (k[earIdx+2] >= CONF_THRESH) {
-      const dx = k[earIdx] - k[neckIdx];
-      const dy = k[earIdx+1] - k[neckIdx+1];
-      const neckToEar = Math.sqrt(dx*dx + dy*dy);
-      const radius = neckToEar * 1.2 + currentThickness * 0.5;
-      
+    let centerX, centerY;
+    if (leftEarVisible && rightEarVisible) {
+      // Both ears visible - use midpoint
+      centerX = (k[leftEarIdx] + k[rightEarIdx]) / 2;
+      centerY = (k[leftEarIdx+1] + k[rightEarIdx+1]) / 2;
+    } else if (leftEarVisible) {
+      // Only left ear visible
+      centerX = k[leftEarIdx];
+      centerY = k[leftEarIdx+1];
+    } else if (rightEarVisible) {
+      // Only right ear visible
+      centerX = k[rightEarIdx];
+      centerY = k[rightEarIdx+1];
+    } else if (k[neckIdx+2] >= CONF_THRESH) {
+      // No ears visible, use neck position
+      centerX = k[neckIdx];
+      centerY = k[neckIdx+1] - headRadius * 0.8; // Offset upward from neck
+    }
+    
+    if (centerX !== undefined) {
       ctx.beginPath();
-      ctx.arc(k[earIdx], k[earIdx+1], radius, 0, Math.PI*2);
+      ctx.arc(centerX, centerY, headRadius, 0, Math.PI*2);
       ctx.fillStyle = lineColor;
       ctx.fill();
     }

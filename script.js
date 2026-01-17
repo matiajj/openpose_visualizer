@@ -42,6 +42,8 @@ const dynamicThicknessCheckbox = document.getElementById("dynamicThickness");
 const jsonFilesInput = document.getElementById("jsonFiles");
 const loadJsonBtn = document.getElementById("loadJsonBtn");
 const statusEl = document.getElementById("status");
+const exportVideoBtn = document.getElementById("exportVideoBtn");
+const exportStatusEl = document.getElementById("exportStatus");
 
 lineThicknessSlider.addEventListener("input", (e) => {
   lineThickness = parseInt(e.target.value);
@@ -82,10 +84,21 @@ loadJsonBtn.addEventListener("click", async () => {
   const loaded = await loadJsonFiles(files);
   if (loaded) {
     statusEl.textContent = `Loaded ${frames.length} frames`;
+    exportVideoBtn.disabled = frames.length === 0;
     startLoopIfNeeded();
   } else {
     statusEl.textContent = "Failed to load JSON files";
   }
+});
+
+exportVideoBtn.addEventListener("click", async () => {
+  if (frames.length === 0) {
+    exportStatusEl.textContent = "No frames loaded";
+    return;
+  }
+  exportVideoBtn.disabled = true;
+  exportStatusEl.textContent = "Exporting video...";
+  await exportVideoMP4();
 });
 
 
@@ -289,7 +302,7 @@ function drawHand(h, scaleFactor = 1.0) {
 }
 function drawFrame(frame) {
   if (!frame) return;
-  const pose = frame.pose || frame; // support older format
+  const pose = frame.pose || frame; 
   drawPose(pose);
   if (frame.hand_left){ 
     drawHand(frame.hand_left);}
@@ -308,5 +321,74 @@ function loop(time) {
   requestAnimationFrame(loop);
 }
 
+async function exportVideoMP4() {
+  try {
+    const stream = canvas.captureStream(fps);
+    const mediaRecorder = new MediaRecorder(stream, { 
+      mimeType: 'video/webm;codecs=vp9',
+      videoBitsPerSecond: 2500000
+    });
+    
+    const chunks = [];
+    mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
+    
+    mediaRecorder.start();
+    exportStatusEl.textContent = "Recording frames...";
+    
+    // Play through all frames
+    let frameCount = 0;
+    const frameDuration = 1000 / fps;
+    const totalFrames = frames.length;
+    const startTime = performance.now();
+    
+    await new Promise((resolve) => {
+      const recordingLoop = () => {
+        const elapsed = performance.now() - startTime;
+        const expectedFrameIndex = Math.floor(elapsed / frameDuration) % totalFrames;
+        
+        if (expectedFrameIndex !== frameCount) {
+          frameCount = expectedFrameIndex;
+          exportStatusEl.textContent = `Recording: ${frameCount + 1}/${totalFrames}`;
+          
+          if (frameCount >= totalFrames - 1) {
+            mediaRecorder.stop();
+            resolve();
+            return;
+          }
+        }
+        
+        requestAnimationFrame(recordingLoop);
+      };
+      recordingLoop();
+    });
+    
+    // Wait for recording to stop
+    await new Promise((resolve) => {
+      mediaRecorder.onstop = () => resolve();
+    });
+    
+    // Create and download 
+    const blob = new Blob(chunks, { type: 'video/webm' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `skeleton_animation_${Date.now()}.webm`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    exportStatusEl.textContent = "Video exported successfully!";
+    setTimeout(() => {
+      exportStatusEl.textContent = "";
+      exportVideoBtn.disabled = frames.length === 0;
+    }, 2000);
+  } catch (err) {
+    console.error('Export error:', err);
+    exportStatusEl.textContent = `Error: ${err.message}`;
+    exportVideoBtn.disabled = frames.length === 0;
+  }
+}
+
 console.log("Ready to load frames via folder picker");
-statusEl.textContent = "Idle — select a folder to load frames";
+statusEl.textContent = "Select a folder to load frames";

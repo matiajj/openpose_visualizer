@@ -1,8 +1,11 @@
 const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
 const CONF_THRESH = 0.1;
+const HAND_CONF_THRESH = 0.1;
 const START_FRAME = 0;
-const END_FRAME = 171;
+let END_FRAME = 0; // will be set after loading
+
+// Skeleton bones for OpenPose 25-keypoint body
 const BONES = [
   [1,0],
   [1,2],[2,3],[3,4],
@@ -10,6 +13,14 @@ const BONES = [
   [1,8],
   [8,9],[9,10],[10,11],
   [8,12],[12,13],[13,14]
+];
+// Hand bones for OpenPose 21-keypoint hand (wrist=0)
+const HAND_BONES = [
+  [0,1],[1,2],[2,3],[3,4],
+  [0,5],[5,6],[6,7],[7,8],
+  [0,9],[9,10],[10,11],[11,12],
+  [0,13],[13,14],[14,15],[15,16],
+  [0,17],[17,18],[18,19],[19,20]
 ];
 // Control variables
 let lineThickness = 8;
@@ -59,12 +70,15 @@ dynamicThicknessCheckbox.addEventListener("change", (e) => {
 });
 
 loadJsonBtn.addEventListener("click", async () => {
-  const files = Array.from(jsonFilesInput.files || []);
+  // folder input 
+  let files = Array.from(jsonFilesInput.files || []);
+  // Keep only .json files
+  files = files.filter(f => f.name.toLowerCase().endsWith('.json'));
   if (!files.length) {
-    statusEl.textContent = "No JSON files selected";
+    statusEl.textContent = "No JSON files selected in folder";
     return;
   }
-  statusEl.textContent = "Loading JSON files...";
+  statusEl.textContent = "Loading JSON files from folder...";
   const loaded = await loadJsonFiles(files);
   if (loaded) {
     statusEl.textContent = `Loaded ${frames.length} frames`;
@@ -78,7 +92,7 @@ loadJsonBtn.addEventListener("click", async () => {
 
 let frames = [];
 let frameIndex = 0;
-let folder = 'Plotting';
+//let folder = 'Plotting';
 
 function frameName(i) {
   return `${folder}.json/${folder}_${String(i).padStart(12, "0")}_keypoints.json`;
@@ -88,23 +102,46 @@ async function loadFrames() {
   for (let i = START_FRAME; i <= END_FRAME; i++) {
     const res = await fetch(frameName(i));
     const json = await res.json();
-    frames.push(json.people[0]?.pose_keypoints_2d || null);
+    const p = json.people[0] || {};
+
+    frames.push({
+      pose: Array.isArray(p.pose_keypoints_2d) ? p.pose_keypoints_2d : null,
+      hand_left: Array.isArray(p.hand_left_keypoints_2d) ? p.hand_left_keypoints_2d : null,
+      hand_right: Array.isArray(p.hand_right_keypoints_2d) ? p.hand_right_keypoints_2d : null
+    });
+    console.log(`Loaded frame ${i}`);
   }
 }
 
+
 async function loadJsonFiles(fileList) {
   try {
-    // Sort filenames so frames play in order if they are named numerically
-    fileList.sort((a,b) => a.name.localeCompare(b.name, undefined, {numeric:true}));
+    // Filter & sort
+    fileList = fileList.filter(f => f.name.toLowerCase().endsWith('.json'));
+    const getKey = (f) => (f.webkitRelativePath || f.name || "");
+    fileList.sort((a,b) => getKey(a).localeCompare(getKey(b), undefined, {numeric:true}));
     const newFrames = [];
     for (const f of fileList) {
-      const text = await f.text();
-      const json = JSON.parse(text);
-      newFrames.push(json.people[0]?.pose_keypoints_2d || null);
+      try {
+        const text = await f.text();
+        const json = JSON.parse(text);
+        const p = json.people && json.people[0] ? json.people[0] : {};
+        newFrames.push({
+          pose: p.pose_keypoints_2d || null,
+          hand_left: p.hand_left_keypoints_2d || p.hand_left_keypoints || null,
+          hand_right: p.hand_right_keypoints_2d || p.hand_right_keypoints || null
+        });
+      } catch (err) {
+        console.warn('Skipping invalid JSON file', f.name, err);
+      }
     }
     // Replace frames
     frames = newFrames;
     frameIndex = 0;
+    // Adjust END_FRAME to match loaded folder
+    END_FRAME = Math.max(0, frames.length - 1);
+    console.log(`Adjusted END_FRAME to ${END_FRAME}`);
+    statusEl.textContent = `Loaded ${frames.length} frames`;
     return true;
   } catch (e) {
     console.error('loadJsonFiles error', e);
@@ -209,16 +246,67 @@ function drawPose(k) {
   }
 }
 
+function drawHand(h, scaleFactor = 1.0) {
+  if (!h) return;
+  if (!Array.isArray(h) || h.length < 63) {
+    console.warn('Invalid hand data:', h);
+    return;
+  }
+  
+  // h is an array of length 63 (21*3)
+  const handThickness = Math.max(2, lineThickness * 0.6 * scaleFactor);
+  const jointSize = Math.max(2, 3 * scaleFactor);
+  
+  // Count how many points we'll draw
+  let drawnBones = 0;
+  let drawnJoints = 0;
+  
+  ctx.strokeStyle = '#25ee39';
+  ctx.lineWidth = handThickness;
+  ctx.lineCap = 'round';
+  for (const [a,b] of HAND_BONES) {
+    const ia = a*3, ib = b*3;
+    if ((h[ia+2] || 0) < HAND_CONF_THRESH || (h[ib+2] || 0) < HAND_CONF_THRESH) continue;
+    ctx.beginPath();
+    ctx.moveTo(h[ia], h[ia+1]);
+    ctx.lineTo(h[ib], h[ib+1]);
+    ctx.stroke();
+    drawnBones++;
+  }
+  // joints
+  if (showJoints) {
+    for (let i = 0; i < h.length; i += 3) {
+      if ((h[i+2] || 0) < HAND_CONF_THRESH) continue;
+      ctx.beginPath();
+      ctx.arc(h[i], h[i+1], jointSize, 0, Math.PI*2);
+      ctx.fillStyle = '#3eff28';
+      ctx.fill();
+      drawnJoints++;
+    }
+  }
+  
+  
+}
+function drawFrame(frame) {
+  if (!frame) return;
+  const pose = frame.pose || frame; // support older format
+  drawPose(pose);
+  if (frame.hand_left){ 
+    drawHand(frame.hand_left);}
+  if (frame.hand_right) {
+    drawHand(frame.hand_right);}
+}
+
 let lastTime = 0;
 function loop(time) {
   if (time - lastTime > 1000 / fps) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    drawPose(frames[frameIndex]);
+    drawFrame(frames[frameIndex]);
     frameIndex = (frameIndex + 1) % frames.length;
     lastTime = time;
   }
   requestAnimationFrame(loop);
 }
 
-loadFrames().then(() => requestAnimationFrame(loop));
-// If the user loads frames later we call startLoopIfNeeded() from handlers above
+console.log("Ready to load frames via folder picker");
+statusEl.textContent = "Idle — select a folder to load frames";

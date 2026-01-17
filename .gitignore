@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+venv/
+env/
+
+# Build outputs
+dist/
+build/
+*.o
+*.a
+*.so
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Environment
+.env
+.env.local
+
+# Temporary files
+Openpose mapped videos
+.vs
+Openpose mapped videos.zip
+
+

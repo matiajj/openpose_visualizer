@@ -168,7 +168,7 @@ function drawPose(k) {
   const rightEarIdx = 18 * 3;
   
   // Calculate and store head radius only when both ears are visible
-  if (!radiusCalculated && k[leftEarIdx+2] >= CONF_THRESH && k[rightEarIdx+2] >= CONF_THRESH) {
+  if (k[leftEarIdx+2] >= CONF_THRESH && k[rightEarIdx+2] >= CONF_THRESH) {
     const dx = k[rightEarIdx] - k[leftEarIdx];
     const dy = k[rightEarIdx+1] - k[leftEarIdx+1];
     const diameter = Math.sqrt(dx*dx + dy*dy);
@@ -177,10 +177,12 @@ function drawPose(k) {
   }
   
   // If radius still not set after first frame, use default
-  if (!radiusCalculated && headRadius === null && frameIndex > 0) {
+  if (headRadius === null && frameIndex > 0) {
     headRadius = 60 + currentThickness * 0.5; // Default radius
     radiusCalculated = true;
   }
+
+  console.log('Head radius:', headRadius);
   
   // Draw head using stored radius
   if (headRadius !== null) {
@@ -203,7 +205,7 @@ function drawPose(k) {
     } else if (k[neckIdx+2] >= CONF_THRESH) {
       // No ears visible, use neck position
       centerX = k[neckIdx];
-      centerY = k[neckIdx+1] - headRadius * 0.8; // Offset upward from neck
+      centerY = k[neckIdx+1] - headRadius * 0.8;
     }
     
     if (centerX !== undefined) {
